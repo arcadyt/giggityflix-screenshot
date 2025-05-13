@@ -3,7 +3,7 @@ name = "screenshot-service"
 version = "0.1.0"
 description = "Screenshot retrieval service for Giggityflix media streaming platform"
 readme = "README.md"
-packages = [{ include = "src" }, { include = "tests" }]
+packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
