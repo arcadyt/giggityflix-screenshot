@@ -249,20 +249,12 @@ def app_with_mocked_deps():
     """Create a FastAPI app with mocked dependencies."""
     app = src.main.app
 
-    # Store original dependencies to restore later
-    original_get_redis_client = src.api.dependencies.get_redis_client
-    original_get_token_service = src.api.dependencies.get_token_service
-    original_get_redis_service = src.api.dependencies.get_redis_service
-    original_get_kafka_service = src.api.dependencies.get_kafka_service
-    original_get_storage_service = src.api.dependencies.get_storage_service
-    original_get_screenshot_service = src.api.dependencies.get_screenshot_service
-
     # Override dependencies
-    @app.dependency_overrides[src.api.dependencies.get_redis_client]
+    @app.dependency_overrides[src.dependencies.get_redis_client]
     def mock_get_redis_client():
         return MagicMock(spec=Redis)
 
-    @app.dependency_overrides[src.api.dependencies.get_token_service]
+    @app.dependency_overrides[src.dependencies.get_token_service]
     def mock_get_token_service():
         mock = MagicMock(spec=TokenService)
         mock.validate_token.return_value = TokenPayload(
@@ -274,7 +266,7 @@ def app_with_mocked_deps():
         )
         return mock
 
-    @app.dependency_overrides[src.api.dependencies.get_screenshot_service]
+    @app.dependency_overrides[src.dependencies.get_screenshot_service]
     def mock_get_screenshot_service():
         mock = MagicMock(spec=ScreenshotService)
         mock.process_screenshot_upload.return_value = ["url1", "url2"]
