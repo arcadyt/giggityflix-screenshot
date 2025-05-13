@@ -1,13 +1,14 @@
 import io
 from typing import List
+
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
 from jose import jwt
 
-from models import ErrorResponse, ScreenshotUploadResult, TokenBlacklistReason, TokenPayload
-from services.token_service import TokenService
-from services.screenshot_service import ScreenshotService
-from api.dependencies import get_token_service, get_screenshot_service
+from src.dependencies import get_token_service, get_screenshot_service
+from src.models import ErrorResponse, ScreenshotUploadResult, TokenBlacklistReason, TokenPayload
+from src.services.screenshot_service import ScreenshotService
+from src.services.token_service import TokenService
 
 router = APIRouter(prefix="/api")
 

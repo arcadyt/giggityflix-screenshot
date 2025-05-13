@@ -1,10 +1,11 @@
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timedelta
 from typing import List, Set
+
 from redis import Redis
 
-from config import config
-from models import ScreenshotRequest
+from src.config import config
+from src.models import ScreenshotRequest
 
 
 class RedisService:

@@ -1,12 +1,13 @@
 from fastapi import Depends
 from redis import Redis
 
-from config import config
-from services.token_service import TokenService
-from services.redis_service import RedisService
-from services.kafka_service import KafkaService
-from services.storage_service import StorageService
-from services.screenshot_service import ScreenshotService
+from src.config import config
+from src.services.kafka_service import KafkaService
+from src.services.redis_service import RedisService
+from src.services.screenshot_service import ScreenshotService
+from src.services.storage_service import StorageService
+from src.services.token_service import TokenService
+
 
 def get_redis_client() -> Redis:
     """Get Redis client."""
@@ -19,27 +20,32 @@ def get_redis_client() -> Redis:
         decode_responses=False  # We want bytes for token blacklist
     )
 
+
 def get_token_service(redis_client: Redis = Depends(get_redis_client)) -> TokenService:
     """Get TokenService instance."""
     return TokenService(redis_client)
+
 
 def get_redis_service(redis_client: Redis = Depends(get_redis_client)) -> RedisService:
     """Get RedisService instance."""
     return RedisService(redis_client)
 
+
 def get_kafka_service() -> KafkaService:
     """Get KafkaService instance."""
     return KafkaService()
+
 
 def get_storage_service() -> StorageService:
     """Get StorageService instance."""
     return StorageService()
 
+
 def get_screenshot_service(
-    token_service: TokenService = Depends(get_token_service),
-    redis_service: RedisService = Depends(get_redis_service),
-    kafka_service: KafkaService = Depends(get_kafka_service),
-    storage_service: StorageService = Depends(get_storage_service)
+        token_service: TokenService = Depends(get_token_service),
+        redis_service: RedisService = Depends(get_redis_service),
+        kafka_service: KafkaService = Depends(get_kafka_service),
+        storage_service: StorageService = Depends(get_storage_service)
 ) -> ScreenshotService:
     """Get ScreenshotService instance."""
     return ScreenshotService(

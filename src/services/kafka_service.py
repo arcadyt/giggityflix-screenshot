@@ -1,11 +1,12 @@
 import json
-import threading
 import logging
+import threading
 from typing import Callable, Dict, List, Any
+
 from confluent_kafka import Consumer, Producer, KafkaError, KafkaException
 
-from config import config
-from models import PeerWithMedia, ScreenshotRequest
+from src.config import config
+from src.models import PeerWithMedia, ScreenshotRequest
 
 logger = logging.getLogger(__name__)
 

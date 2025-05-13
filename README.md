@@ -5,6 +5,7 @@ Microservice for handling screenshot capture requests and uploads for the Giggit
 ## Overview
 
 This service:
+
 - Receives screenshot requests via Kafka events
 - Issues one-time JWT tokens to peers for authentication
 - Handles screenshot uploads from peers
@@ -24,10 +25,12 @@ poetry run python -m src.main
 ## Environment Variables
 
 ### Server Configuration
+
 - `PORT`: HTTP server port (default: 8000)
 - `LOG_LEVEL`: Logging level (default: info)
 
 ### Kafka Configuration
+
 - `KAFKA_BOOTSTRAP_SERVERS`: Kafka broker addresses (default: localhost:9092)
 - `KAFKA_GROUP_ID`: Consumer group ID (default: screenshot-service)
 - `KAFKA_SCREENSHOTS_REQUESTED_TOPIC`: Topic for screenshot requests (default: media.screenshots.requested)
@@ -35,6 +38,7 @@ poetry run python -m src.main
 - `KAFKA_PEER_AVAILABLE_TOPIC`: Topic for available peers (default: peer.available.with_requested_media)
 
 ### Redis Configuration
+
 - `REDIS_HOST`: Redis hostname (default: localhost)
 - `REDIS_PORT`: Redis port (default: 6379)
 - `REDIS_DB`: Redis database number (default: 0)
@@ -43,6 +47,7 @@ poetry run python -m src.main
 - `REDIS_PENDING_REQUESTS_PREFIX`: Prefix for pending requests (default: screenshot:pending:)
 
 ### MinIO Configuration
+
 - `MINIO_ENDPOINT`: MinIO server endpoint (default: localhost:9000)
 - `MINIO_ACCESS_KEY`: MinIO access key (default: minioadmin)
 - `MINIO_SECRET_KEY`: MinIO secret key (default: minioadmin)
@@ -50,11 +55,13 @@ poetry run python -m src.main
 - `MINIO_BUCKET_NAME`: Bucket for screenshots (default: screenshots)
 
 ### JWT Configuration
+
 - `JWT_SECRET_KEY`: Secret key for JWT tokens (default: secret)
 - `JWT_ALGORITHM`: JWT signing algorithm (default: HS256)
 - `JWT_TOKEN_EXPIRE_MINUTES`: Token expiration in minutes (default: 30)
 
 ### Service Configuration
+
 - `PEER_REGISTRY_URL`: URL of Peer Registry service (default: http://peer-registry:8000)
 - `EDGE_SERVICE_URL`: URL of Edge service (default: http://edge-service:8000)
 - `MAX_SCREENSHOTS_PER_REQUEST`: Maximum screenshots per request (default: 10)
@@ -63,8 +70,8 @@ poetry run python -m src.main
 ## API Endpoints
 
 - `POST /api/screenshot/{catalog_id}`: Upload screenshots for a media item
-  - Requires Bearer token in Authorization header
-  - Accepts multipart/form-data with image files
+    - Requires Bearer token in Authorization header
+    - Accepts multipart/form-data with image files
 
 ## Event Flow
 

@@ -1,10 +1,11 @@
 import io
-from typing import BinaryIO
 import uuid
+from typing import BinaryIO
+
 from minio import Minio
 from minio.error import S3Error
 
-from config import config
+from src.config import config
 
 
 class StorageService:

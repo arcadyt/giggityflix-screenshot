@@ -1,233 +1,378 @@
 import json
-import pytest
 from unittest.mock import MagicMock, patch, call
 
-# Ensure the path is set up by importing conftest
-from services.kafka_service import KafkaService
-from models import ScreenshotRequest, PeerWithMedia
+import pytest
+from confluent_kafka import KafkaError, KafkaException
+
+from src.models import PeerWithMedia, ScreenshotRequest
 
 
-@pytest.fixture
-def kafka_service():
-    """Create a real KafkaService instance with mocked Producer."""
-    with patch('confluent_kafka.Producer') as producer_mock:
-        service = KafkaService()
-        service.producer = producer_mock
-        yield service
+@pytest.mark.unit
+class TestKafkaService:
+    def test_init(self, kafka_service, mock_producer):
+        # Reset consumer to ensure it starts as None
+        kafka_service.consumer = None
 
+        # Verify producer was created with correct parameters
+        assert kafka_service.producer == mock_producer
+        assert kafka_service.consumer is None
+        assert kafka_service.running is False
+        assert kafka_service.consumer_thread is None
 
-def test_publish_screenshots_completed(kafka_service):
-    catalog_id = "catalog123"
-    request_id = "request456"
-    screenshot_urls = ["url1", "url2", "url3"]
+    def test_publish_screenshots_completed(self, kafka_service, mock_producer, test_data):
+        catalog_id = test_data["catalog_id"]
+        request_id = test_data["request_id"]
+        screenshot_urls = test_data["screenshot_urls"]
 
-    kafka_service.publish_screenshots_completed(catalog_id, request_id, screenshot_urls)
+        # Call the method
+        kafka_service.publish_screenshots_completed(catalog_id, request_id, screenshot_urls)
 
-    kafka_service.producer.produce.assert_called_once()
-    call_args = kafka_service.producer.produce.call_args
-    assert call_args[0][0] == kafka_service.kafka_config.screenshots_completed_topic
+        # Verify produce was called with correct parameters
+        mock_producer.produce.assert_called_once()
+        args, kwargs = mock_producer.produce.call_args
 
-    message_json = call_args[1]['value'].decode('utf-8')
-    message = json.loads(message_json)
+        assert args[0] == kafka_service.kafka_config.screenshots_completed_topic
+        assert "value" in kwargs
 
-    assert message["catalog_id"] == catalog_id
-    assert message["request_id"] == request_id
-    assert message["screenshot_urls"] == screenshot_urls
-    assert message["status"] == "completed"
+        # Verify message JSON
+        message_json = kwargs["value"].decode("utf-8")
+        message = json.loads(message_json)
 
-    kafka_service.producer.flush.assert_called_once()
+        assert message["catalog_id"] == catalog_id
+        assert message["request_id"] == request_id
+        assert message["screenshot_urls"] == screenshot_urls
+        assert message["status"] == "completed"
 
+        # Verify callback was provided
+        assert "callback" in kwargs
+        assert callable(kwargs["callback"])
 
-def test_start_consuming(kafka_service):
-    # We need to patch the specific import location in the kafka_service module
-    with patch('services.kafka_service.Consumer') as consumer_mock:
-        with patch('services.kafka_service.threading.Thread') as thread_mock:
-            # Create a mock consumer instance that will be returned
-            consumer_instance = MagicMock()
-            consumer_mock.return_value = consumer_instance
+        # Verify flush was called
+        mock_producer.flush.assert_called_once()
 
-            # Create a mock thread instance
-            thread_instance = MagicMock()
-            thread_mock.return_value = thread_instance
+    def test_delivery_report_success(self, kafka_service):
+        # Create a mock message
+        msg = MagicMock()
+        msg.topic.return_value = "test-topic"
+        msg.partition.return_value = 0
 
-            screenshots_requested_handler = MagicMock()
-            peer_available_handler = MagicMock()
+        # Call the method with no error
+        with patch("src.services.kafka_service.logger") as logger_mock:
+            kafka_service._delivery_report(None, msg)
 
-            # Call the method
-            kafka_service.start_consuming(
-                screenshots_requested_handler,
-                peer_available_handler
-            )
+            # Verify logger.debug was called
+            logger_mock.debug.assert_called_once()
+            assert "Message delivered" in logger_mock.debug.call_args[0][0]
 
-            # Verify Consumer was created
-            consumer_mock.assert_called_once()
+    def test_delivery_report_error(self, kafka_service):
+        # Create a mock error
+        error = "Test error"
 
-            # Get the config now that we know it was called
-            consumer_config = consumer_mock.call_args[0][0]
+        # Call the method with an error
+        with patch("src.services.kafka_service.logger") as logger_mock:
+            kafka_service._delivery_report(error, None)
 
-            # Verify the config values
-            assert consumer_config['bootstrap.servers'] == kafka_service.kafka_config.bootstrap_servers
-            assert consumer_config['group.id'] == kafka_service.kafka_config.group_id
-            assert consumer_config['auto.offset.reset'] == 'earliest'
+            # Verify logger.error was called
+            logger_mock.error.assert_called_once()
+            assert "Message delivery failed" in logger_mock.error.call_args[0][0]
 
-            # Verify subscribe was called
-            consumer_instance.subscribe.assert_called_once_with([
-                kafka_service.kafka_config.screenshots_requested_topic,
-                kafka_service.kafka_config.peer_available_topic
-            ])
+    def test_start_consuming_already_running(self, kafka_service, mock_consumer):
+        # Reset consumer to None first
+        kafka_service.consumer = None
+        # Set running flag to True
+        kafka_service.running = True
 
-            # Verify thread was created and started
-            thread_mock.assert_called_once()
-            thread_instance.start.assert_called_once()
+        # Call the method
+        screenshot_handler = MagicMock()
+        peer_handler = MagicMock()
 
-            # Verify running flag
-            assert kafka_service.running is True
+        kafka_service.start_consuming(screenshot_handler, peer_handler)
 
+        # Verify consumer was not created
+        assert kafka_service.consumer is None
 
-def test_start_consuming_already_running(kafka_service):
-    with patch('confluent_kafka.Consumer') as consumer_mock:
-        with patch('threading.Thread') as thread_mock:
-            screenshots_requested_handler = MagicMock()
-            peer_available_handler = MagicMock()
+    def test_start_consuming(self, kafka_service, mock_consumer):
+        # Reset state first
+        kafka_service.running = False
+        kafka_service.consumer = None
 
-            kafka_service.running = True
+        # Call the method
+        with patch("src.services.kafka_service.Consumer", return_value=mock_consumer):
+            with patch("src.services.kafka_service.threading.Thread") as thread_mock:
+                thread_instance = MagicMock()
+                thread_mock.return_value = thread_instance
 
-            kafka_service.start_consuming(
-                screenshots_requested_handler,
-                peer_available_handler
-            )
+                screenshot_handler = MagicMock()
+                peer_handler = MagicMock()
 
-            consumer_mock.assert_not_called()
-            thread_mock.assert_not_called()
+                kafka_service.start_consuming(screenshot_handler, peer_handler)
 
+                # Verify running flag was set
+                assert kafka_service.running is True
 
-def test_stop_consuming_not_running(kafka_service):
-    kafka_service.running = False
-    kafka_service.consumer_thread = None
+                # Verify consumer was created
+                assert kafka_service.consumer == mock_consumer
 
-    kafka_service.stop_consuming()
+                # Verify subscribe was called with correct topics
+                mock_consumer.subscribe.assert_called_once_with([
+                    kafka_service.kafka_config.screenshots_requested_topic,
+                    kafka_service.kafka_config.peer_available_topic
+                ])
 
+                # Verify thread was created and started
+                thread_mock.assert_called_once()
 
-def test_stop_consuming_running(kafka_service):
-    kafka_service.running = True
-    thread_instance = MagicMock()
-    kafka_service.consumer_thread = thread_instance
+                # Fix for call args - check that the Thread was created with the correct target
+                # and args without assuming specific position
+                call_kwargs = thread_mock.call_args.kwargs
+                assert call_kwargs.get('target') == kafka_service._consume_loop
+                assert call_kwargs.get('args') == (screenshot_handler, peer_handler)
+                assert call_kwargs.get('daemon') is True
 
-    kafka_service.stop_consuming()
+                thread_instance.start.assert_called_once()
 
-    assert kafka_service.running is False
-    thread_instance.join.assert_called_once_with(timeout=5.0)
+    def test_stop_consuming_not_running(self, kafka_service):
+        # Set running flag to False
+        kafka_service.running = False
+        kafka_service.consumer_thread = None
 
+        # Call the method
+        kafka_service.stop_consuming()
 
-def test_consume_loop_process_screenshot_requested(kafka_service, sample_screenshot_request):
-    with patch('confluent_kafka.Consumer') as consumer_mock:
-        mock_consumer = MagicMock()
-        consumer_mock.return_value = mock_consumer
+        # Verify nothing happened
+        assert kafka_service.running is False
 
-        mock_message = MagicMock()
-        mock_message.error.return_value = None
-        mock_message.topic.return_value = kafka_service.kafka_config.screenshots_requested_topic
+    def test_stop_consuming_running(self, kafka_service):
+        # Set running flag to True
+        kafka_service.running = True
+        kafka_service.consumer_thread = MagicMock()
 
-        # Create message content based on sample request
-        request_dict = {
-            "catalog_id": sample_screenshot_request.catalog_id,
-            "request_id": sample_screenshot_request.request_id,
-            "requester_service": sample_screenshot_request.requester_service,
-        }
-        mock_message.value.return_value = json.dumps(request_dict).encode('utf-8')
+        # Call the method
+        kafka_service.stop_consuming()
 
-        mock_consumer.poll.side_effect = [mock_message, None]
+        # Verify running flag was cleared
+        assert kafka_service.running is False
 
+        # Verify thread was joined
+        kafka_service.consumer_thread.join.assert_called_once_with(timeout=5.0)
+
+    def test_consume_loop_screenshots_requested(self, kafka_service, mock_consumer, sample_screenshot_request):
+        # Create handlers
         screenshots_requested_handler = MagicMock()
         peer_available_handler = MagicMock()
 
-        kafka_service.consumer = mock_consumer
+        # Set up mock message
+        message = MagicMock()
+        message.error.return_value = None
+        message.topic.return_value = kafka_service.kafka_config.screenshots_requested_topic
+        message.value.return_value = sample_screenshot_request.model_dump_json().encode("utf-8")
+
+        # Set up consumer to return message once, then set running to False
+        mock_consumer.poll.return_value = message
+
+        # Set running flag to True
         kafka_service.running = True
 
-        def stop_after_one_message(*args, **kwargs):
+        # Set up a side effect to stop the loop after one iteration
+        def stop_after_call(request):
             kafka_service.running = False
-            return screenshots_requested_handler(*args, **kwargs)
+            return None
 
-        mock_handler = MagicMock(side_effect=stop_after_one_message)
+        screenshots_requested_handler.side_effect = stop_after_call
 
-        kafka_service._consume_loop(mock_handler, peer_available_handler)
+        # Set consumer
+        kafka_service.consumer = mock_consumer
 
-        mock_handler.assert_called_once()
-        handler_arg = mock_handler.call_args[0][0]
+        # Call the method
+        kafka_service._consume_loop(screenshots_requested_handler, peer_available_handler)
+
+        # Verify poll was called
+        mock_consumer.poll.assert_called()
+
+        # Verify handler was called with correct request
+        screenshots_requested_handler.assert_called_once()
+        handler_arg = screenshots_requested_handler.call_args[0][0]
         assert isinstance(handler_arg, ScreenshotRequest)
         assert handler_arg.catalog_id == sample_screenshot_request.catalog_id
         assert handler_arg.request_id == sample_screenshot_request.request_id
 
+        # Verify other handler was not called
         peer_available_handler.assert_not_called()
 
+        # Verify consumer was closed
+        mock_consumer.close.assert_called_once()
 
-def test_consume_loop_process_peer_available(kafka_service, sample_peer_with_media):
-    with patch('confluent_kafka.Consumer') as consumer_mock:
-        mock_consumer = MagicMock()
-        consumer_mock.return_value = mock_consumer
-
-        mock_message = MagicMock()
-        mock_message.error.return_value = None
-        mock_message.topic.return_value = kafka_service.kafka_config.peer_available_topic
-
-        # Create message content based on sample peer
-        peer_data = {
-            "peer_id": sample_peer_with_media.peer_id,
-            "edge_id": sample_peer_with_media.edge_id,
-            "catalog_ids": sample_peer_with_media.catalog_ids
-        }
-        mock_message.value.return_value = json.dumps(peer_data).encode('utf-8')
-
-        mock_consumer.poll.side_effect = [mock_message, None]
-
+    def test_consume_loop_peer_available(self, kafka_service, mock_consumer, sample_peer_with_media):
+        # Create handlers
         screenshots_requested_handler = MagicMock()
         peer_available_handler = MagicMock()
 
-        kafka_service.consumer = mock_consumer
+        # Set up mock message
+        message = MagicMock()
+        message.error.return_value = None
+        message.topic.return_value = kafka_service.kafka_config.peer_available_topic
+        message.value.return_value = sample_peer_with_media.model_dump_json().encode("utf-8")
+
+        # Set up consumer to return message once
+        mock_consumer.poll.return_value = message
+
+        # Set running flag to True
         kafka_service.running = True
 
-        def stop_after_one_message(*args, **kwargs):
+        # Set up a side effect to stop the loop after one iteration
+        def stop_after_call(peer):
             kafka_service.running = False
-            return peer_available_handler(*args, **kwargs)
+            return None
 
-        mock_handler = MagicMock(side_effect=stop_after_one_message)
+        peer_available_handler.side_effect = stop_after_call
 
-        kafka_service._consume_loop(screenshots_requested_handler, mock_handler)
+        # Set consumer
+        kafka_service.consumer = mock_consumer
 
-        mock_handler.assert_called_once()
-        handler_arg = mock_handler.call_args[0][0]
+        # Call the method
+        kafka_service._consume_loop(screenshots_requested_handler, peer_available_handler)
+
+        # Verify poll was called
+        mock_consumer.poll.assert_called()
+
+        # Verify handler was called with correct peer
+        peer_available_handler.assert_called_once()
+        handler_arg = peer_available_handler.call_args[0][0]
         assert isinstance(handler_arg, PeerWithMedia)
         assert handler_arg.peer_id == sample_peer_with_media.peer_id
         assert handler_arg.edge_id == sample_peer_with_media.edge_id
         assert handler_arg.catalog_ids == sample_peer_with_media.catalog_ids
 
+        # Verify other handler was not called
         screenshots_requested_handler.assert_not_called()
 
+        # Verify consumer was closed
+        mock_consumer.close.assert_called_once()
 
-def test_consume_loop_handle_error(kafka_service):
-    with patch('services.kafka_service.Consumer') as consumer_mock:
-        mock_consumer = MagicMock()
-        consumer_mock.return_value = mock_consumer
-
-        mock_message = MagicMock()
-        mock_error = MagicMock()
-        mock_error.code.return_value = 1  # Not _PARTITION_EOF
-        mock_message.error.return_value = mock_error
-
+    def test_consume_loop_message_error_partition_eof(self, kafka_service, mock_consumer):
+        # Create handlers
         screenshots_requested_handler = MagicMock()
         peer_available_handler = MagicMock()
 
-        kafka_service.consumer = mock_consumer
+        # Set up mock message with _PARTITION_EOF error
+        message = MagicMock()
+        error = MagicMock()
+        error.code.return_value = KafkaError._PARTITION_EOF
+        message.error.return_value = error
+
+        # Set up mock response sequence - first return the error message, then set running to False
+        # to avoid recursion
+        original_poll = mock_consumer.poll
+        call_count = 0
+
+        def mock_poll_with_count(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return message
+            else:
+                kafka_service.running = False
+                return None
+
+        mock_consumer.poll = mock_poll_with_count
+
+        # Set running flag to True
         kafka_service.running = True
 
-        # Fix: Make sure the function accepts keyword arguments
-        def stop_loop(*args, **kwargs):
-            kafka_service.running = False
-            return mock_message
+        # Set consumer
+        kafka_service.consumer = mock_consumer
 
-        mock_consumer.poll.side_effect = stop_loop
-
+        # Call the method
         kafka_service._consume_loop(screenshots_requested_handler, peer_available_handler)
 
+        # Verify poll was called
+        assert call_count > 0
+
+        # Verify no handlers were called
         screenshots_requested_handler.assert_not_called()
         peer_available_handler.assert_not_called()
+
+        # Verify consumer was closed
+        mock_consumer.close.assert_called_once()
+
+    def test_consume_loop_message_error_other(self, kafka_service, mock_consumer):
+        # Create handlers
+        screenshots_requested_handler = MagicMock()
+        peer_available_handler = MagicMock()
+
+        # Set up mock message with non-_PARTITION_EOF error
+        message = MagicMock()
+        error = MagicMock()
+        error.code.return_value = KafkaError._ALL_BROKERS_DOWN
+        message.error.return_value = error
+
+        # Set up mock response sequence - first return the error message, then set running to False
+        original_poll = mock_consumer.poll
+        call_count = 0
+
+        def mock_poll_with_count(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return message
+            else:
+                kafka_service.running = False
+                return None
+
+        mock_consumer.poll = mock_poll_with_count
+
+        # Set running flag to True
+        kafka_service.running = True
+
+        # Set consumer
+        kafka_service.consumer = mock_consumer
+
+        # Call the method with logger mock
+        with patch("src.services.kafka_service.logger") as logger_mock:
+            kafka_service._consume_loop(screenshots_requested_handler, peer_available_handler)
+
+            # Verify poll was called
+            assert call_count > 0
+
+            # Verify logger.error was called
+            logger_mock.error.assert_called_once()
+            assert "Kafka consumer error" in logger_mock.error.call_args[0][0]
+
+            # Verify no handlers were called
+            screenshots_requested_handler.assert_not_called()
+            peer_available_handler.assert_not_called()
+
+            # Verify consumer was closed
+            mock_consumer.close.assert_called_once()
+
+    def test_consume_loop_kafka_exception(self, kafka_service, mock_consumer):
+        # Create handlers
+        screenshots_requested_handler = MagicMock()
+        peer_available_handler = MagicMock()
+
+        # Set up consumer to raise KafkaException
+        mock_consumer.poll.side_effect = KafkaException("Kafka error")
+
+        # Set running flag to True
+        kafka_service.running = True
+
+        # Set consumer
+        kafka_service.consumer = mock_consumer
+
+        # Call the method with logger mock
+        with patch("src.services.kafka_service.logger") as logger_mock:
+            kafka_service._consume_loop(screenshots_requested_handler, peer_available_handler)
+
+            # Verify poll was called
+            mock_consumer.poll.assert_called_once()
+
+            # Verify logger.error was called
+            logger_mock.error.assert_called_once()
+            assert "Kafka exception" in logger_mock.error.call_args[0][0]
+
+            # Verify no handlers were called
+            screenshots_requested_handler.assert_not_called()
+            peer_available_handler.assert_not_called()
+
+            # Verify consumer was closed
+            mock_consumer.close.assert_called_once()

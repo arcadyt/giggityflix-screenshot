@@ -1,11 +1,12 @@
-from datetime import datetime, timedelta
 import uuid
+from datetime import datetime, timedelta
 from typing import Optional, Dict
+
 from jose import jwt
 from redis import Redis
 
-from config import config
-from models import TokenPayload, ScreenshotTokenInfo, TokenBlacklistReason
+from src.config import config
+from src.models import TokenPayload, ScreenshotTokenInfo, TokenBlacklistReason
 
 
 class TokenService:
