@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from confluent_kafka import KafkaError, KafkaException

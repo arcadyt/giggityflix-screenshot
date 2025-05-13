@@ -1,9 +1,7 @@
-import pytest
 from fastapi import HTTPException, status, FastAPI
 
 from src.api.routes import router, validate_token
 from src.main import app
-from src.models import TokenBlacklistReason
 from tests.conftest import *  # Import all fixtures
 
 
@@ -80,6 +78,7 @@ class TestRoutes:
             # Verify token_service.get_blacklist_reason was called
             token_service.get_blacklist_reason.assert_called_once_with("test-token-id")
 
+
 @pytest.mark.skip
 @pytest.mark.integration
 class TestIntegrationRoutes:
@@ -116,6 +115,7 @@ class TestIntegrationRoutes:
 
         # Verify screenshot_service.process_screenshot_upload was called
         screenshot_service.process_screenshot_upload.assert_called_once()
+
 
 @pytest.mark.skip
 class TestMainApp:
