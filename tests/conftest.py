@@ -1,19 +1,18 @@
 import pytest
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-# Import models directly to avoid circular imports
-from src.models import TokenPayload, ScreenshotRequest, PeerWithMedia
+# Add tests directory to Python path first, so our test config is found
+tests_path = Path(__file__).parent
+sys.path.insert(0, str(tests_path))
 
+# Then add src directory to Python path
+src_path = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(src_path))
 
-# Create a mock router instead of importing the real one to avoid import errors
-class MockRouter:
-    def include_router(self, *args, **kwargs):
-        pass
-
-
-mock_router = MockRouter()
+# Now imports from src will find the config module in the tests directory
+from models import TokenPayload, ScreenshotRequest, PeerWithMedia
 
 
 @pytest.fixture
@@ -54,14 +53,15 @@ def screenshot_service_mock(
 
 
 @pytest.fixture
-def app(token_service_mock, screenshot_service_mock):
+def app():
     """Create a FastAPI app with mocked dependencies for testing."""
+    from fastapi import FastAPI
     app = FastAPI()
 
     # Define a simple test endpoint instead of using the router
-    @app.post("/api/screenshot/{catalog_id}")
-    async def test_endpoint(catalog_id: str):
-        return {"catalog_id": catalog_id, "status": "success"}
+    @app.post("/api/test")
+    async def test_endpoint():
+        return {"status": "success"}
 
     return app
 
@@ -69,28 +69,32 @@ def app(token_service_mock, screenshot_service_mock):
 @pytest.fixture
 def client(app):
     """Create a test client for the FastAPI app."""
+    from fastapi.testclient import TestClient
     return TestClient(app)
 
 
 @pytest.fixture
 def sample_token_payload():
     """Create a sample TokenPayload for testing."""
+    from datetime import datetime
     return TokenPayload(
         peer_id="test-peer-id",
         catalog_id="test-catalog-id",
         request_id="test-request-id",
         token_id="test-token-id",
-        exp=None  # Not needed for most tests
+        exp=datetime.now()
     )
 
 
 @pytest.fixture
 def sample_screenshot_request():
     """Create a sample ScreenshotRequest for testing."""
+    from datetime import datetime
     return ScreenshotRequest(
         catalog_id="test-catalog-id",
         request_id="test-request-id",
-        requester_service="test-service"
+        requester_service="test-service",
+        created_at=datetime.now()
     )
 
 
